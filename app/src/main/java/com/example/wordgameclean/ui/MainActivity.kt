@@ -12,7 +12,13 @@ import com.example.wordgameclean.domain.GameManager
 
 
 class MainActivity : AppCompatActivity() {
+    private var timerStarted = false
+    private lateinit var timerHandler: android.os.Handler
+    private var timerRunnable: Runnable? = null
+    private var mode: String = "classic"
 
+    private var timeLeft = 180
+    private lateinit var timerText: TextView
     private var topWeight = 1f
     private var gameWeight = 2f
     private var bottomWeight = 1f
@@ -62,10 +68,18 @@ class MainActivity : AppCompatActivity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        timerHandler = android.os.Handler(mainLooper)
 
         loadUiSettings()
 
-        val mode = intent.getStringExtra("mode") ?: "classic"
+        mode = intent.getStringExtra("mode") ?: "classic"
+        println("MODE = $mode")
+
+        timerText = TextView(this).apply {
+            textSize = 16f
+            gravity = Gravity.CENTER
+        }
+
 
         gameManager = GameManager()
         gameManager.setMode(mode)
@@ -100,7 +114,9 @@ class MainActivity : AppCompatActivity() {
 
         val resetBtn = createTopButton("Сброс", "🔄") {
             gameManager.resetGame()
+            resetTimer()
             render()
+            createKeyboard()
         }
 
         val compressBtn = createTopButton("Сжать слово", "📦") {
@@ -176,6 +192,10 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener {
                 val before = gameManager.getState().score
                 val ok = gameManager.submitWord()
+                if (mode == "timer" && ok && !timerStarted) {
+                    timerStarted = true
+                    startTimer()
+                }
                 val after = gameManager.getState().score
                 val delta = after - before
 
@@ -189,6 +209,7 @@ class MainActivity : AppCompatActivity() {
 
                 gameManager.save(this@MainActivity)
                 render()
+                createKeyboard()
             }
         }
 
@@ -223,6 +244,7 @@ class MainActivity : AppCompatActivity() {
         }
         topBlock.addView(topBar)
         topBlock.addView(scoreText)
+        topBlock.addView(timerText)
         topBlock.addView(infoPanel)
         topBlock.addView(actionIndicator)
 
@@ -402,6 +424,9 @@ class MainActivity : AppCompatActivity() {
                         when {
                             data.startsWith("k_") -> {
                                 val letter = data.removePrefix("k_").first()
+
+                                if (gameManager.isLetterDisabled(letter)) return@setOnDragListener true
+
                                 gameManager.replaceLetter(i, letter)
                             }
 
@@ -452,42 +477,44 @@ class MainActivity : AppCompatActivity() {
 
             val btn = TextView(this).apply {
                 text = l
-                textSize = 18f   // 🔥 больше текст
+                textSize = 18f
                 gravity = Gravity.CENTER
                 setTextColor(Color.BLACK)
 
-                // 🔥 фиксированная высота — чтобы клавиатура выглядела аккуратно
                 layoutParams = GridLayout.LayoutParams().apply {
                     width = 0
-                    height = 120   // ← ВАЖНО
+                    height = 120
                     columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
                     setMargins(8, 8, 8, 8)
                 }
 
-                // 🔥 красивый фон
                 background = GradientDrawable().apply {
                     setColor(Color.parseColor("#F5F5F5"))
                     cornerRadius = 24f
                     setStroke(2, Color.parseColor("#CCCCCC"))
                 }
 
-                elevation = 6f // 🔥 тень (объем)
+                elevation = 6f
 
                 setOnTouchListener { v, e ->
-
                     when (e.action) {
 
                         MotionEvent.ACTION_DOWN -> {
-                            // 🔥 эффект нажатия
+
+                            val real = if (l == "Е/Ё") 'Е' else l[0]
+
+                            // 🔴 блокировка
+                            if (gameManager.isLetterDisabled(real)) return@setOnTouchListener true
+
                             v.scaleX = 0.92f
                             v.scaleY = 0.92f
 
-                            if (!isDraggingFromKeyboard) {
-                                isDraggingFromKeyboard = true
-                                render()
+                            if (mode == "timer") {
+                                if (!isDraggingFromKeyboard) {
+                                    isDraggingFromKeyboard = true
+                                    render()
+                                }
                             }
-
-                            val real = if (l == "Е/Ё") 'Е' else l[0]
 
                             val data = ClipData.newPlainText("k_$real", "k_$real")
                             v.startDragAndDrop(data, View.DragShadowBuilder(v), null, 0)
@@ -506,9 +533,23 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            val real = if (l == "Е/Ё") 'Е' else l[0]
+
+            if (gameManager.isLetterDisabled(real)) {
+
+                btn.alpha = 1f
+
+                btn.background = GradientDrawable().apply {
+                    setColor(Color.BLACK)
+                    cornerRadius = 24f
+                }
+
+                btn.setTextColor(Color.WHITE)
+            }
             keyboardContainer.addView(btn)
-        }
-    }
+        }    }
+
+
     // ===== helpers (без изменений)
 
     private fun styleButton(btn: Button) {
@@ -626,4 +667,39 @@ class MainActivity : AppCompatActivity() {
             .putFloat("bottom", bottomWeight)
             .apply()
     }
+    private fun startTimer() {
+
+        timerRunnable = object : Runnable {
+            override fun run() {
+                timeLeft--
+
+                timerText.text = "⏱ $timeLeft сек"
+
+                if (timeLeft > 0) {
+                    timerHandler.postDelayed(this, 1000)
+                } else {
+                    endGame()
+                }
+            }
+        }
+
+        timerHandler.post(timerRunnable!!)
+    }
+    private fun resetTimer() {
+        timerHandler.removeCallbacks(timerRunnable ?: return)
+        timeLeft = 180
+        timerText.text = "⏱ $timeLeft сек"
+        timerStarted = false
+    }
+    private fun endGame() {
+
+        showMessage("⏱ Время вышло!", Color.RED)
+
+        // 🔒 блокируем игру
+        isDraggingFromKeyboard = true
+
+        // (опционально) можно ещё:
+        keyboardContainer.alpha = 0.4f
+    }
+
 }

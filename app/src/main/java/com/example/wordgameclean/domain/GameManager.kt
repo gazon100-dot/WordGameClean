@@ -4,6 +4,14 @@ import android.content.Context
 
 class GameManager {
 
+    // ================= MODE =================
+
+    private var mode: String = "classic"
+
+    fun setMode(m: String) {
+        mode = m
+    }
+
     // ================= TYPES =================
 
     enum class ActionType {
@@ -12,17 +20,45 @@ class GameManager {
         INSERT_DELETE,
         SWAP
     }
-    private var lastActionType: ActionType = ActionType.NONE
-    private var lastActionIndex: Int = -1
-    fun getLastActionType(): ActionType = lastActionType
-    fun getLastActionIndex(): Int = lastActionIndex
-    private var mode: String = "classic"
 
-    fun setMode(m: String) {
-        mode = m
+    // ================= DISABLED LETTERS =================
+
+    private val disabledLetters = mutableSetOf<Char>()
+
+    fun isLetterDisabled(c: Char): Boolean {
+        return disabledLetters.contains(c)
     }
 
-    // ================= DATA =================
+    private fun disableRandomLetter() {
+
+        val allLetters = ('А'..'Я').toList()
+        val available = allLetters.filter { it !in disabledLetters }
+
+        if (available.isEmpty()) return
+
+        val vowels = listOf('А','Е','И','О','У','Ы','Э','Ю','Я')
+
+        val weightedPool = mutableListOf<Char>()
+
+        for (c in available) {
+            if (c in vowels) {
+                repeat(1) { weightedPool.add(c) } // гласные реже
+            } else {
+                repeat(3) { weightedPool.add(c) } // согласные чаще
+            }
+        }
+
+        val chosen = weightedPool.random()
+        disabledLetters.add(chosen)
+    }
+
+    // ================= STATE =================
+
+    private var lastActionType: ActionType = ActionType.NONE
+    private var lastActionIndex: Int = -1
+
+    fun getLastActionType(): ActionType = lastActionType
+    fun getLastActionIndex(): Int = lastActionIndex
 
     private var dictionary: Set<String> = emptySet()
 
@@ -30,14 +66,12 @@ class GameManager {
     private var currentWord = mutableListOf<Char>()
     private var startWord = mutableListOf<Char>()
     private var turnBaseWord = mutableListOf<Char>()
+
     private var score = 0
     private var correctCount = 0
-
-    private val usedWords = mutableSetOf<String>()
-
     private var bestScore = 0
 
-    // ===== turn system =====
+    private val usedWords = mutableSetOf<String>()
 
     private var currentAction = ActionType.NONE
     private var actionCount = 0
@@ -49,12 +83,18 @@ class GameManager {
     }
 
     fun init(context: Context) {
+
         val prefs = context.getSharedPreferences("game", Context.MODE_PRIVATE)
         bestScore = prefs.getInt("best_score", 0)
+
+        disabledLetters.clear() // 🔥 ВАЖНО
 
         currentWord = getRandomStartWord()
         startWord = currentWord.toMutableList()
         turnBaseWord = currentWord.toMutableList()
+
+        score = 0
+        correctCount = 0
 
         usedWords.clear()
         usedWords.add(currentWord.joinToString("").lowercase())
@@ -75,11 +115,7 @@ class GameManager {
         )
     }
 
-    fun isCompressMode(): Boolean {
-        return isCompressMode
-    }
-
-    // ================= TURN LOGIC =================
+    // ================= TURN =================
 
     private fun getReplaceLimit(): Int {
         val len = currentWord.size
@@ -114,21 +150,9 @@ class GameManager {
         }
     }
 
-    private fun getRandomStartWord(): MutableList<Char> {
-        val candidates = dictionary.filter { it.length == 3 }
-
-        if (candidates.isEmpty()) {
-            return mutableListOf('К', 'О', 'Т')
-        }
-
-        val word = candidates.random().uppercase()
-        return word.toMutableList()
-    }
-
     private fun resetTurn() {
         currentAction = ActionType.NONE
         actionCount = 0
-
         lastActionType = ActionType.NONE
         lastActionIndex = -1
     }
@@ -137,12 +161,12 @@ class GameManager {
 
     fun submitWord(): Boolean {
 
+        if (mode == "ended") return false
+
         val wordStr = currentWord.joinToString("").lowercase()
 
         if (isCompressMode) {
-            if (currentWord.size !in 2..3) {
-                return false
-            }
+            if (currentWord.size !in 2..3) return false
             stopCompressMode()
         }
 
@@ -163,9 +187,13 @@ class GameManager {
         usedWords.add(wordStr)
 
         val points = calcPoints(wordStr.length)
-
         score += points
         correctCount++
+
+        // 🔥 ЛОГИКА TIME РЕЖИМА
+        if (mode == "timer" && correctCount % 3 == 0) {
+            disableRandomLetter()
+        }
 
         if (score > bestScore) {
             bestScore = score
@@ -201,12 +229,16 @@ class GameManager {
     }
 
     fun resetGame() {
+
+        disabledLetters.clear() // 🔥 ВАЖНО
+
         currentWord = getRandomStartWord()
         startWord = currentWord.toMutableList()
         turnBaseWord = currentWord.toMutableList()
 
         score = 0
         correctCount = 0
+
         usedWords.clear()
         usedWords.add(currentWord.joinToString("").lowercase())
 
@@ -227,6 +259,7 @@ class GameManager {
         actionCount++
         return true
     }
+
     fun removeLetter(index: Int): Boolean {
 
         if (!isCompressMode) {
@@ -277,6 +310,7 @@ class GameManager {
 
         return true
     }
+
     fun getActionInfo(): String {
         return when (currentAction) {
             ActionType.NONE -> "Ход не начат"
@@ -295,5 +329,15 @@ class GameManager {
 
     fun stopCompressMode() {
         isCompressMode = false
+    }
+
+    private fun getRandomStartWord(): MutableList<Char> {
+        val candidates = dictionary.filter { it.length == 3 }
+
+        if (candidates.isEmpty()) {
+            return mutableListOf('К', 'О', 'Т')
+        }
+
+        return candidates.random().uppercase().toMutableList()
     }
 }
