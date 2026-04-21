@@ -509,12 +509,11 @@ class MainActivity : AppCompatActivity() {
                             v.scaleX = 0.92f
                             v.scaleY = 0.92f
 
-                            if (mode == "timer") {
-                                if (!isDraggingFromKeyboard) {
-                                    isDraggingFromKeyboard = true
-                                    render()
-                                }
+                            if (!isDraggingFromKeyboard) {
+                                isDraggingFromKeyboard = true
+                                render()
                             }
+
 
                             val data = ClipData.newPlainText("k_$real", "k_$real")
                             v.startDragAndDrop(data, View.DragShadowBuilder(v), null, 0)
