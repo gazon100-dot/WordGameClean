@@ -21,8 +21,30 @@ class MenuActivity : AppCompatActivity() {
         val classicBtn = Button(this).apply {
             text = "Классический режим"
             setOnClickListener {
-                startActivity(Intent(this@MenuActivity, MainActivity::class.java)
-                    .putExtra("mode", "classic"))
+
+                val gm = com.example.wordgameclean.domain.GameManager()
+                gm.setMode("classic")
+
+                if (gm.hasSave(this@MenuActivity)) {
+
+                    androidx.appcompat.app.AlertDialog.Builder(this@MenuActivity)
+                        .setTitle("Продолжить игру?")
+                        .setMessage("Найдена сохранённая игра")
+                        .setPositiveButton("Продолжить") { _, _ ->
+                            startActivity(Intent(this@MenuActivity, MainActivity::class.java)
+                                .putExtra("mode", "classic"))
+                        }
+                        .setNegativeButton("Новая игра") { _, _ ->
+                            gm.clearSave(this@MenuActivity)
+                            startActivity(Intent(this@MenuActivity, MainActivity::class.java)
+                                .putExtra("mode", "classic"))
+                        }
+                        .show()
+
+                } else {
+                    startActivity(Intent(this@MenuActivity, MainActivity::class.java)
+                        .putExtra("mode", "classic"))
+                }
             }
         }
 
@@ -30,8 +52,30 @@ class MenuActivity : AppCompatActivity() {
         val timerBtn = Button(this).apply {
             text = "Режим на время"
             setOnClickListener {
-                startActivity(Intent(this@MenuActivity, MainActivity::class.java)
-                    .putExtra("mode", "timer"))
+
+                val gm = com.example.wordgameclean.domain.GameManager()
+                gm.setMode("timer")
+
+                if (gm.hasSave(this@MenuActivity)) {
+
+                    androidx.appcompat.app.AlertDialog.Builder(this@MenuActivity)
+                        .setTitle("Продолжить игру?")
+                        .setMessage("Найдена сохранённая игра")
+                        .setPositiveButton("Продолжить") { _, _ ->
+                            startActivity(Intent(this@MenuActivity, MainActivity::class.java)
+                                .putExtra("mode", "timer"))
+                        }
+                        .setNegativeButton("Новая игра") { _, _ ->
+                            gm.clearSave(this@MenuActivity)
+                            startActivity(Intent(this@MenuActivity, MainActivity::class.java)
+                                .putExtra("mode", "timer"))
+                        }
+                        .show()
+
+                } else {
+                    startActivity(Intent(this@MenuActivity, MainActivity::class.java)
+                        .putExtra("mode", "timer"))
+                }
             }
         }
 

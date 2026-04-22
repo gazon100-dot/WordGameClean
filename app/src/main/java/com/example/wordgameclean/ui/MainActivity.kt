@@ -43,12 +43,17 @@ class MainActivity : AppCompatActivity() {
             topWeight
         )
 
-        gameBlock.layoutParams = LinearLayout.LayoutParams(
+        topBlock.layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             0,
-            gameWeight
+            topWeight
         )
 
+        bottomBlock.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            0,
+            bottomWeight
+        )
         bottomBlock.layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             0,
@@ -91,6 +96,16 @@ class MainActivity : AppCompatActivity() {
 
         gameManager.setDictionary(words)
         gameManager.init(this)
+        val (savedTime, savedStarted, hasSave) = gameManager.loadGame(this)
+
+        if (hasSave) {
+            timeLeft = savedTime
+            timerStarted = savedStarted
+
+            if (mode == "timer" && timerStarted) {
+                startTimer()
+            }
+        }
 
         rootLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -114,6 +129,7 @@ class MainActivity : AppCompatActivity() {
 
         val resetBtn = createTopButton("Сброс", "🔄") {
             gameManager.resetGame()
+            gameManager.clearSave(this)
             resetTimer()
             render()
             createKeyboard()
@@ -207,7 +223,7 @@ class MainActivity : AppCompatActivity() {
                     showMessage("Ошибка (-1)", Color.parseColor("#F44336"))
                 }
 
-                gameManager.save(this@MainActivity)
+                gameManager.saveGame(this@MainActivity, timeLeft, timerStarted)
                 render()
                 createKeyboard()
             }
@@ -251,17 +267,22 @@ class MainActivity : AppCompatActivity() {
         gameBlock = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-        }
 
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
         gameBlock.addView(wordContainer)
         gameBlock.addView(controls)
+
+        val keyboardHeight = (resources.displayMetrics.heightPixels * 0.35f).toInt()
 
         gameBlock.addView(
             keyboardContainer,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
+                keyboardHeight
             )
         )
 
@@ -282,14 +303,7 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
-        rootLayout.addView(
-            gameBlock,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                gameWeight
-            )
-        )
+        rootLayout.addView(gameBlock)
 
         rootLayout.addView(
             bottomBlock,
@@ -300,6 +314,13 @@ class MainActivity : AppCompatActivity() {
             )
         )
         setContentView(rootLayout)
+        rootLayout.setOnDragListener { _, event ->
+            if (event.action == DragEvent.ACTION_DRAG_ENDED) {
+                isDraggingFromKeyboard = false
+                render()
+            }
+            true
+        }
 
         setupDelete(delete)
         createKeyboard()
@@ -362,9 +383,7 @@ class MainActivity : AppCompatActivity() {
 
                     if (e.action == DragEvent.ACTION_DRAG_ENDED) {
                         isDraggingFromKeyboard = false
-                        wordContainer.post { render() }
                     }
-
                     true
                 }
 
@@ -427,7 +446,14 @@ class MainActivity : AppCompatActivity() {
 
                                 if (gameManager.isLetterDisabled(letter)) return@setOnDragListener true
 
-                                gameManager.replaceLetter(i, letter)
+                                val current = gameManager.getState().word[i]
+
+                                // 🔥 ЕСЛИ Е — делаем toggle
+                                if (letter == 'Е' && (current == 'Е' || current == 'Ё')) {
+                                    gameManager.toggleYo(i)
+                                } else {
+                                    gameManager.replaceLetter(i, letter)
+                                }
                             }
 
                             data.startsWith("w_") -> {
@@ -465,7 +491,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun createKeyboard() {
         keyboardContainer.removeAllViews()
-
+        keyboardContainer.minimumHeight =
+            (resources.displayMetrics.heightPixels * 0.3f).toInt()
         val letters = listOf(
             "А","Б","В","Г","Д","Е/Ё","Ж","З",
             "И","Й","К","Л","М","Н","О","П",
@@ -501,18 +528,19 @@ class MainActivity : AppCompatActivity() {
 
                         MotionEvent.ACTION_DOWN -> {
 
-                            val real = if (l == "Е/Ё") 'Е' else l[0]
-
+                            val real = if (l == "Е/Ё") {
+                                // 🔥 всегда отправляем Е — toggle сделает GameManager
+                                'Е'
+                            } else l[0]
                             // 🔴 блокировка
                             if (gameManager.isLetterDisabled(real)) return@setOnTouchListener true
 
                             v.scaleX = 0.92f
                             v.scaleY = 0.92f
 
-                            if (!isDraggingFromKeyboard) {
+
                                 isDraggingFromKeyboard = true
-                                render()
-                            }
+                                wordContainer.post { render() }
 
 
                             val data = ClipData.newPlainText("k_$real", "k_$real")
@@ -700,5 +728,7 @@ class MainActivity : AppCompatActivity() {
         // (опционально) можно ещё:
         keyboardContainer.alpha = 0.4f
     }
-
+    fun refresh() {
+        render()
+    }
 }

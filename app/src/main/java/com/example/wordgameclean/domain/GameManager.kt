@@ -18,9 +18,9 @@ class GameManager {
         NONE,
         REPLACE,
         INSERT_DELETE,
-        SWAP
+        SWAP,
+        TOGGLE_YO
     }
-
     // ================= DISABLED LETTERS =================
 
     private val disabledLetters = mutableSetOf<Char>()
@@ -60,7 +60,8 @@ class GameManager {
     fun getLastActionType(): ActionType = lastActionType
     fun getLastActionIndex(): Int = lastActionIndex
 
-    private var dictionary: Set<String> = emptySet()
+    private var dictionary = mutableSetOf<String>()            // оригинал
+    private var normalizedDictionary = mutableSetOf<String>()  // для проверки
 
     private var isCompressMode = false
     private var currentWord = mutableListOf<Char>()
@@ -79,8 +80,11 @@ class GameManager {
     // ================= INIT =================
 
     fun setDictionary(words: Set<String>) {
-        dictionary = words.map { it.lowercase() }.toSet()
-    }
+        dictionary = words.map { it.lowercase() }.toMutableSet()
+
+        normalizedDictionary = words
+            .map { normalize(it) }
+            .toMutableSet()    }
 
     fun init(context: Context) {
 
@@ -98,6 +102,29 @@ class GameManager {
 
         usedWords.clear()
         usedWords.add(currentWord.joinToString("").lowercase())
+    }
+
+    fun toggleYo(index: Int): Boolean {
+
+        if (index !in currentWord.indices) return false
+
+        val c = currentWord[index]
+
+        if (c == 'Е') {
+            currentWord[index] = 'Ё'
+        } else if (c == 'Ё') {
+            currentWord[index] = 'Е'
+        } else {
+            return false
+        }
+
+        // ❌ НЕ трогаем currentAction
+        // ❌ НЕ увеличиваем actionCount
+
+        lastActionType = ActionType.TOGGLE_YO
+        lastActionIndex = index
+
+        return true
     }
 
     fun save(context: Context) {
@@ -146,6 +173,7 @@ class GameManager {
             ActionType.REPLACE -> actionCount < getReplaceLimit()
             ActionType.INSERT_DELETE -> actionCount < 1
             ActionType.SWAP -> true
+            ActionType.TOGGLE_YO -> actionCount < 1
             else -> false
         }
     }
@@ -163,28 +191,47 @@ class GameManager {
 
         if (mode == "ended") return false
 
-        val wordStr = currentWord.joinToString("").lowercase()
+        val rawWord = currentWord.joinToString("").lowercase()
+        val wordStr = normalize(rawWord)
+
 
         if (isCompressMode) {
             if (currentWord.size !in 2..3) return false
             stopCompressMode()
         }
 
-        if (!dictionary.contains(wordStr)) {
+        if (dictionary.none { normalize(it) == wordStr }) {
             applyPenalty()
             currentWord = startWord.toMutableList()
             resetTurn()
             return false
         }
 
-        if (usedWords.contains(wordStr)) {
+        if (usedWords.contains(rawWord)) {
             applyPenalty()
             currentWord = startWord.toMutableList()
             resetTurn()
             return false
         }
 
-        usedWords.add(wordStr)
+        usedWords.add(rawWord)
+
+        // 💥 ищем оригинальное слово из словаря
+        val originalInput = currentWord.joinToString("").lowercase()
+
+        val realWord = dictionary.find { it == originalInput }
+
+        if (realWord != null) {
+            currentWord = realWord.uppercase().toMutableList()
+        } else {
+            // fallback если вдруг в словаре только "е"-версия
+            val fallback = dictionary.find { normalize(it) == wordStr }
+            if (fallback != null) {
+                currentWord = fallback.uppercase().toMutableList()
+            }
+            val finalWord = currentWord.joinToString("").lowercase()
+            usedWords.add(normalize(finalWord))
+        }
 
         val points = calcPoints(wordStr.length)
         score += points
@@ -241,7 +288,6 @@ class GameManager {
 
         usedWords.clear()
         usedWords.add(currentWord.joinToString("").lowercase())
-
         resetTurn()
     }
 
@@ -285,10 +331,20 @@ class GameManager {
     }
 
     fun replaceLetter(index: Int, c: Char): Boolean {
-        if (!canDoAction(ActionType.REPLACE)) return false
         if (index !in currentWord.indices) return false
 
-        currentWord[index] = c
+        val newChar = c.uppercaseChar()   // 💥 ВОТ ЭТО КЛЮЧ
+        val current = currentWord[index]
+
+        // 🔥 toggle без лимитов
+        if ((current == 'Е' && newChar == 'Е') ||
+            (current == 'Ё' && newChar == 'Е')) {
+            return toggleYo(index)
+        }
+
+        if (!canDoAction(ActionType.REPLACE)) return false
+
+        currentWord[index] = newChar
 
         lastActionType = ActionType.REPLACE
         lastActionIndex = index
@@ -317,6 +373,7 @@ class GameManager {
             ActionType.REPLACE -> "Замена: $actionCount/${getReplaceLimit()}"
             ActionType.INSERT_DELETE -> "Добавление/Удаление: $actionCount/1"
             ActionType.SWAP -> "Перестановка (без лимита)"
+            ActionType.TOGGLE_YO -> "Ё переключение"
         }
     }
 
@@ -340,4 +397,72 @@ class GameManager {
 
         return candidates.random().uppercase().toMutableList()
     }
+    fun saveGame(context: Context, timeLeft: Int, timerStarted: Boolean) {
+
+        val prefs = context.getSharedPreferences("save_$mode", Context.MODE_PRIVATE)
+
+        prefs.edit().apply {
+            putString("currentWord", currentWord.joinToString(""))
+            putString("startWord", startWord.joinToString(""))
+            putString("turnBaseWord", turnBaseWord.joinToString(""))
+
+            putInt("score", score)
+            putInt("correctCount", correctCount)
+
+            putStringSet("usedWords", usedWords)
+            putString("disabledLetters", disabledLetters.joinToString(""))
+
+            putInt("timeLeft", timeLeft)
+            putBoolean("timerStarted", timerStarted)
+
+            apply()
+        }
+    }
+    fun loadGame(context: Context): Triple<Int, Boolean, Boolean> {
+
+        val prefs = context.getSharedPreferences("save_$mode", Context.MODE_PRIVATE)
+
+        if (!prefs.contains("currentWord")) {
+            return Triple(0, false, false)
+        }
+
+        currentWord = prefs.getString("currentWord", "")!!.toMutableList()
+        startWord = prefs.getString("startWord", "")!!.toMutableList()
+        turnBaseWord = prefs.getString("turnBaseWord", "")!!.toMutableList()
+
+        score = prefs.getInt("score", 0)
+        correctCount = prefs.getInt("correctCount", 0)
+
+        usedWords.clear()
+        usedWords.addAll(prefs.getStringSet("usedWords", emptySet())!!)
+
+        disabledLetters.clear()
+        disabledLetters.addAll(
+            prefs.getString("disabledLetters", "")!!.toList()
+        )
+
+        val timeLeft = prefs.getInt("timeLeft", 180)
+        val timerStarted = prefs.getBoolean("timerStarted", false)
+
+        return Triple(timeLeft, timerStarted, true)
+    }
+    fun hasSave(context: Context): Boolean {
+        val prefs = context.getSharedPreferences("save_$mode", Context.MODE_PRIVATE)
+        return prefs.contains("currentWord")
+    }
+    fun clearSave(context: Context) {
+        context.getSharedPreferences("save_$mode", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .apply()
+    }
+    private fun normalize(word: String): String {
+        return word
+            .lowercase()
+            .replace('ё', 'е')
+
+
+    }
+
+
 }

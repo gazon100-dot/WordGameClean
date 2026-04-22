@@ -5,12 +5,15 @@ import android.os.Bundle
 import android.view.*
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
+import com.example.wordgameclean.domain.GameManager
 
 class SettingsActivity : AppCompatActivity() {
 
     private lateinit var topPreview: LinearLayout
     private lateinit var gamePreview: LinearLayout
     private lateinit var bottomPreview: LinearLayout
+
+    private val MIN_WEIGHT = 0.5f
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -19,10 +22,10 @@ class SettingsActivity : AppCompatActivity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(20, 20, 20, 20)
+            setPadding(16, 16, 16, 16)
         }
 
-        val previewContainer = LinearLayout(this).apply {
+        val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -31,58 +34,68 @@ class SettingsActivity : AppCompatActivity() {
             )
         }
 
-        // ===== BLOCKS =====
+        // ===== TOP =====
 
-        topPreview = createBlock(
-            "СЧЁТ / КНОПКИ",
-            "#90CAF9",
-            prefs.getFloat("top", 1f)
-        )
+        topPreview = createTopBlock(prefs.getFloat("top", 1f))
 
-        gamePreview = createBlock(
-            "СЛОВО + КЛАВИАТУРА",
-            "#A5D6A7",
-            prefs.getFloat("game", 2f)
-        )
+        // ===== GAME (через GameView) =====
 
-        bottomPreview = createBlock(
-            "ИСПОЛЬЗОВАННЫЕ СЛОВА",
-            "#FFCC80",
-            prefs.getFloat("bottom", 1f)
-        )
+        val fakeManager = GameManager().apply {
+            setMode("classic")
+            setDictionary(setOf("кот", "дом"))
+            init(this@SettingsActivity)
+        }
 
-        // ===== DIVIDERS =====
+        val gameView = GameView(this, fakeManager, isPreview = true)
 
-        val divider1 = createDivider()
-        val divider2 = createDivider()
+        gamePreview = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                2f
+            )
+
+            setBackgroundColor(Color.parseColor("#A5D6A7"))
+            alpha = 0.95f
+
+            addView(
+                gameView.root,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.MATCH_PARENT
+                )
+            )        }
+
+        // ===== BOTTOM =====
+
+        bottomPreview = createBottomBlock(prefs.getFloat("bottom", 1f))
+
+        // ===== DIVIDER =====
+
+        val divider = createDivider()
 
         // ===== LAYOUT =====
 
-        previewContainer.addView(topPreview)
-        previewContainer.addView(divider1)
-        previewContainer.addView(gamePreview)
-        previewContainer.addView(divider2)
-        previewContainer.addView(bottomPreview)
+        container.addView(topPreview)
+        container.addView(divider)
+        container.addView(gamePreview)
+        container.addView(bottomPreview)
 
-        // ===== RESIZE LOGIC =====
+        attachResize(divider)
 
-        attachResizeBetween(divider1, topPreview, gamePreview)
-        attachResizeBetween(divider2, gamePreview, bottomPreview)
-
-        // ===== SAVE BUTTON =====
+        // ===== SAVE =====
 
         val saveBtn = Button(this).apply {
             text = "СОХРАНИТЬ"
-
             setOnClickListener {
 
                 val top = (topPreview.layoutParams as LinearLayout.LayoutParams).weight
-                val game = (gamePreview.layoutParams as LinearLayout.LayoutParams).weight
                 val bottom = (bottomPreview.layoutParams as LinearLayout.LayoutParams).weight
 
                 prefs.edit()
                     .putFloat("top", top)
-                    .putFloat("game", game)
                     .putFloat("bottom", bottom)
                     .apply()
 
@@ -91,18 +104,18 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
-        root.addView(previewContainer)
+        root.addView(container)
         root.addView(saveBtn)
 
         setContentView(root)
     }
 
-    // ================= BLOCK =================
+    // ================= TOP =================
 
-    private fun createBlock(text: String, color: String, weight: Float): LinearLayout {
+    private fun createTopBlock(weight: Float): LinearLayout {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor(color))
+            setBackgroundColor(Color.parseColor("#90CAF9"))
 
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -111,7 +124,29 @@ class SettingsActivity : AppCompatActivity() {
             )
 
             addView(TextView(context).apply {
-                this.text = text
+                text = "Очки: 10 | Слова: 3\n[Меню] [Сброс]"
+                gravity = Gravity.CENTER
+                textSize = 16f
+                setPadding(0, 40, 0, 40)
+            })
+        }
+    }
+
+    // ================= BOTTOM =================
+
+    private fun createBottomBlock(weight: Float): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#FFCC80"))
+
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                weight
+            )
+
+            addView(TextView(context).apply {
+                text = "кот • дом • лес"
                 gravity = Gravity.CENTER
                 textSize = 16f
                 setPadding(0, 40, 0, 40)
@@ -125,9 +160,8 @@ class SettingsActivity : AppCompatActivity() {
         return View(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                24
+                20
             )
-
             setBackgroundColor(Color.DKGRAY)
             alpha = 0.5f
         }
@@ -135,11 +169,7 @@ class SettingsActivity : AppCompatActivity() {
 
     // ================= RESIZE =================
 
-    private fun attachResizeBetween(
-        divider: View,
-        upper: View,
-        lower: View
-    ) {
+    private fun attachResize(divider: View) {
 
         var startY = 0f
 
@@ -154,24 +184,23 @@ class SettingsActivity : AppCompatActivity() {
 
                 MotionEvent.ACTION_MOVE -> {
 
-                    val diff = (event.rawY - startY) / 600f
+                    val diff = (event.rawY - startY) / 300f
 
-                    val upperParams = upper.layoutParams as LinearLayout.LayoutParams
-                    val lowerParams = lower.layoutParams as LinearLayout.LayoutParams
+                    val topParams = topPreview.layoutParams as LinearLayout.LayoutParams
+                    val bottomParams = bottomPreview.layoutParams as LinearLayout.LayoutParams
 
-                    val newUpper = upperParams.weight + diff
-                    val newLower = lowerParams.weight - diff
+                    val newTop = topParams.weight + diff
+                    val newBottom = bottomParams.weight - diff
 
-                    // 🔒 ограничения
-                    if (newUpper < 0.7f || newLower < 0.7f) {
+                    if (newTop < MIN_WEIGHT || newBottom < MIN_WEIGHT) {
                         return@setOnTouchListener true
                     }
 
-                    upperParams.weight = newUpper
-                    lowerParams.weight = newLower
+                    topParams.weight = newTop
+                    bottomParams.weight = newBottom
 
-                    upper.layoutParams = upperParams
-                    lower.layoutParams = lowerParams
+                    topPreview.layoutParams = topParams
+                    bottomPreview.layoutParams = bottomParams
 
                     startY = event.rawY
 
