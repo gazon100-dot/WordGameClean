@@ -21,6 +21,8 @@ class MainActivity : AppCompatActivity() {
     private var timerRunnable: Runnable? = null
     private var mode: String = "classic"
 
+    private var messageAnimMode = 0
+
     private var timeLeft = 180
     private lateinit var timerText: TextView
     private var topWeight = 1f
@@ -49,17 +51,12 @@ class MainActivity : AppCompatActivity() {
             topWeight
         )
 
-        topBlock.layoutParams = LinearLayout.LayoutParams(
+        gameBlock.layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             0,
-            topWeight
+            gameWeight
         )
 
-        bottomBlock.layoutParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            0,
-            bottomWeight
-        )
         bottomBlock.layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             0,
@@ -68,7 +65,6 @@ class MainActivity : AppCompatActivity() {
 
         rootLayout.requestLayout()
     }
-
     override fun onResume() {
         super.onResume()
 
@@ -296,7 +292,6 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
         }
 
-
         usedScroll = ScrollView(this).apply {
             isFillViewport = true
             addView(usedWordsContainer)
@@ -320,8 +315,14 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
-        rootLayout.addView(gameBlock)
-
+        rootLayout.addView(
+            gameBlock,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                gameWeight
+            )
+        )
         rootLayout.addView(
             bottomBlock,
             LinearLayout.LayoutParams(
@@ -331,10 +332,13 @@ class MainActivity : AppCompatActivity() {
             )
         )
         setContentView(rootLayout)
+
         rootLayout.setOnDragListener { _, event ->
             if (event.action == DragEvent.ACTION_DRAG_ENDED) {
-                isDraggingFromKeyboard = false
-                render()
+                if (isDraggingFromKeyboard) {
+                    isDraggingFromKeyboard = false
+                    render()
+                }
             }
             true
         }
@@ -440,9 +444,11 @@ class MainActivity : AppCompatActivity() {
                     letterView.scaleY = 0.8f
                     letterView.animate().scaleX(1f).scaleY(1f).setDuration(150).start()
                 }
-                letterView.scaleX = 0f
-                letterView.scaleY = 0f
-                letterView.animate().scaleX(1f).scaleY(1f).setDuration(150).start()
+                if (isActionLetter) {
+                    letterView.scaleX = 0.8f
+                    letterView.scaleY = 0.8f
+                    letterView.animate().scaleX(1f).scaleY(1f).setDuration(150).start()
+                }
 
                 letterView.setOnTouchListener { v, e ->
                     if (e.action == MotionEvent.ACTION_DOWN) {
@@ -493,7 +499,6 @@ class MainActivity : AppCompatActivity() {
         val currentLen = state.word.size
         val isCompress = gameManager.isCompressMode()
 
-// 🔥 сортировка: релевантные вверх, затем по длине
         val sortedWords = state.usedWords.sortedWith(
             compareByDescending<String> {
                 isRelevant(it, currentLen, isCompress)
@@ -676,13 +681,27 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun shakeView(v: View) {
-        v.animate().translationX(20f).setDuration(50).withEndAction {
-            v.animate().translationX(-20f).setDuration(50).withEndAction {
-                v.animate().translationX(0f).setDuration(50)
-            }
-        }
-    }
 
+        val sequence = floatArrayOf(
+            0f, 25f, -20f, 15f, -10f, 6f, -3f, 0f
+        )
+
+        var i = 0
+
+        fun next() {
+            if (i >= sequence.size) return
+
+            v.animate()
+                .translationX(sequence[i])
+                .setDuration(40)
+                .withEndAction {
+                    i++
+                    next()
+                }
+        }
+
+        next()
+    }
     private fun setupDelete(delete: TextView) {
         delete.setOnDragListener { _, e ->
             if (e.action == DragEvent.ACTION_DROP) {
@@ -696,8 +715,24 @@ class MainActivity : AppCompatActivity() {
             true
         }
     }
+    private fun hideMessage(mode: Int) {
 
-    private fun showRules() {
+        infoPanel.postDelayed({
+
+            val anim = infoPanel.animate()
+                .alpha(0f)
+                .setDuration(350)
+
+            when (mode) {
+                0 -> anim.translationY(-20f)
+                1 -> anim.translationY(20f)
+                2 -> anim.translationX(100f)
+            }
+
+            anim.start()
+
+        }, 2000) // 👈 комфортное время чтения
+    }    private fun showRules() {
         AlertDialog.Builder(this)
             .setTitle("Правила")
             .setMessage("Собирай слова. Не повторяйся. Ошибка = -1 очко.")
@@ -705,33 +740,73 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
     private fun showMessage(text: String, color: Int = Color.BLACK) {
+
+        messageAnimMode = (messageAnimMode + 1) % 3
+
         infoPanel.apply {
             this.text = text
-            setTextColor(color)
+            setTextColor(Color.WHITE)
+
+            background = GradientDrawable().apply {
+                setColor(color)
+                cornerRadius = 24f
+            }
+
             alpha = 0f
             visibility = View.VISIBLE
         }
 
-        // появление
-        infoPanel.animate()
-            .alpha(1f)
-            .setDuration(200)
-            .withEndAction {
+        when (messageAnimMode) {
 
-                // задержка чтения
-                infoPanel.postDelayed({
-
-                    // исчезновение
-                    infoPanel.animate()
-                        .alpha(0f)
-                        .setDuration(400)
-                        .start()
-
-                }, 1200) // ← можно регулировать
+            0 -> {
+                infoPanel.translationY = 80f
+                infoPanel.translationX = 0f
+                infoPanel.animate()
+                    .alpha(1f)
+                    .translationY(0f)
+                    .setDuration(260)
+                    .withEndAction { hideMessage(0) }
+                    .start()
             }
-            .start()
-    }
-    private fun loadUiSettings() {
+
+            1 -> {
+                infoPanel.translationY = -100f
+                infoPanel.translationX = 0f
+                infoPanel.scaleX = 1.08f
+                infoPanel.scaleY = 1.08f
+
+                infoPanel.animate()
+                    .alpha(1f)
+                    .translationY(0f)
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .setDuration(260)
+                    .withEndAction { hideMessage(1) }
+                    .start()
+            }
+
+            2 -> {
+                infoPanel.translationX = -250f
+                infoPanel.translationY = 0f
+
+                infoPanel.animate()
+                    .alpha(1f)
+                    .translationX(0f)
+                    .setDuration(260)
+                    .withEndAction { hideMessage(2) }
+                    .start()
+            }
+
+            else -> {
+                // fallback (на всякий случай)
+                infoPanel.animate()
+                    .alpha(1f)
+                    .setDuration(200)
+                    .withEndAction { hideMessage(0) }
+                    .start()
+            }
+        }
+    }    private fun loadUiSettings() {
         val prefs = getSharedPreferences("ui", MODE_PRIVATE)
 
         topWeight = prefs.getFloat("top", 1f)
