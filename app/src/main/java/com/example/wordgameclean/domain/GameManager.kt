@@ -118,15 +118,11 @@ class GameManager {
             return false
         }
 
-        // ❌ НЕ трогаем currentAction
-        // ❌ НЕ увеличиваем actionCount
-
         lastActionType = ActionType.TOGGLE_YO
         lastActionIndex = index
 
         return true
     }
-
     fun save(context: Context) {
         val prefs = context.getSharedPreferences("game", Context.MODE_PRIVATE)
         prefs.edit().putInt("best_score", bestScore).apply()
@@ -187,16 +183,16 @@ class GameManager {
 
     // ================= GAME =================
 
-    fun submitWord(): Boolean {
+    fun submitWord(): Pair<Boolean, String?> {
 
-        if (mode == "ended") return false
+        if (mode == "ended") return Pair(false, null)
 
         val rawWord = currentWord.joinToString("").lowercase()
         val wordStr = normalize(rawWord)
 
 
         if (isCompressMode) {
-            if (currentWord.size !in 2..3) return false
+            if (currentWord.size !in 2..3) return Pair(false, null)
             stopCompressMode()
         }
 
@@ -204,14 +200,14 @@ class GameManager {
             applyPenalty()
             currentWord = startWord.toMutableList()
             resetTurn()
-            return false
+            return Pair(false, null)
         }
 
         if (usedWords.contains(rawWord)) {
             applyPenalty()
             currentWord = startWord.toMutableList()
             resetTurn()
-            return false
+            return Pair(false, rawWord) // 👈 передаём слово
         }
 
         usedWords.add(rawWord)
@@ -250,7 +246,7 @@ class GameManager {
         turnBaseWord = startWord.toMutableList()
         resetTurn()
 
-        return true
+        return Pair(true, null)
     }
 
     private fun applyPenalty() {
@@ -311,7 +307,6 @@ class GameManager {
         if (!isCompressMode) {
             if (!canDoAction(ActionType.INSERT_DELETE)) return false
             if (index !in currentWord.indices) return false
-
             currentWord.removeAt(index)
             actionCount++
             return true
@@ -324,15 +319,13 @@ class GameManager {
 
         if (!isSubsequenceValid()) {
             currentWord = backup
-            return false
-        }
+            return false      }
 
         return true
     }
 
     fun replaceLetter(index: Int, c: Char): Boolean {
         if (index !in currentWord.indices) return false
-
         val newChar = c.uppercaseChar()   // 💥 ВОТ ЭТО КЛЮЧ
         val current = currentWord[index]
 
@@ -353,6 +346,9 @@ class GameManager {
         return true
     }
 
+    fun isCompressMode(): Boolean {
+        return isCompressMode
+    }
     fun swapLetters(from: Int, to: Int): Boolean {
         if (!canDoAction(ActionType.SWAP)) return false
         if (from !in currentWord.indices || to !in currentWord.indices) return false

@@ -9,11 +9,15 @@ import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.example.wordgameclean.domain.GameManager
+import com.google.android.flexbox.FlexboxLayout
+import com.google.android.flexbox.FlexWrap
+import android.widget.ScrollView
 
 
 class MainActivity : AppCompatActivity() {
     private var timerStarted = false
     private lateinit var timerHandler: android.os.Handler
+    private lateinit var usedScroll: ScrollView
     private var timerRunnable: Runnable? = null
     private var mode: String = "classic"
 
@@ -27,7 +31,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var wordContainer: LinearLayout
     private lateinit var keyboardContainer: GridLayout
     private lateinit var scoreText: TextView
-    private lateinit var usedWordsContainer: LinearLayout
+    private lateinit var usedWordsContainer: FlexboxLayout
     private lateinit var actionIndicator: TextView
     private lateinit var infoPanel: TextView
     private lateinit var rootLayout: LinearLayout
@@ -35,6 +39,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var gameBlock: LinearLayout
     private lateinit var bottomBlock: LinearLayout
     private var isDraggingFromKeyboard = false
+
+    private var highlightWord: String? = null
     private fun applyLayoutWeights() {
 
         topBlock.layoutParams = LinearLayout.LayoutParams(
@@ -207,7 +213,7 @@ class MainActivity : AppCompatActivity() {
             styleButton(this)
             setOnClickListener {
                 val before = gameManager.getState().score
-                val ok = gameManager.submitWord()
+                val (ok, duplicateWord) = gameManager.submitWord()
                 if (mode == "timer" && ok && !timerStarted) {
                     timerStarted = true
                     startTimer()
@@ -216,6 +222,9 @@ class MainActivity : AppCompatActivity() {
                 val delta = after - before
 
                 if (!ok) shakeView(wordContainer)
+                if (!ok && duplicateWord != null) {
+                    highlightWord = duplicateWord
+                }
 
                 if (ok) {
                     showMessage("Слово принято +$delta", Color.parseColor("#4CAF50"))
@@ -238,12 +247,9 @@ class MainActivity : AppCompatActivity() {
 
         // ===== USED WORDS =====
 
-        usedWordsContainer = LinearLayout(this)
-
-        val usedScroll = HorizontalScrollView(this).apply {
-            addView(usedWordsContainer)
+        usedWordsContainer = FlexboxLayout(this).apply {
+            flexWrap = FlexWrap.WRAP // 🔥 перенос строк
         }
-        usedScroll.setPadding(0, 24, 0, 0)
 
         // ===== KEYBOARD =====
 
@@ -290,9 +296,20 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
         }
 
-        bottomBlock.addView(usedScroll)
 
-        // ===== ROOT =====
+        usedScroll = ScrollView(this).apply {
+            isFillViewport = true
+            addView(usedWordsContainer)
+        }
+
+        bottomBlock.addView(
+            usedScroll,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        )        // ===== ROOT =====
 
         rootLayout.addView(
             topBlock,
@@ -473,20 +490,55 @@ class MainActivity : AppCompatActivity() {
 
         usedWordsContainer.removeAllViews()
 
-        for (w in state.usedWords) {
+        val currentLen = state.word.size
+        val isCompress = gameManager.isCompressMode()
+
+// 🔥 сортировка: релевантные вверх, затем по длине
+        val sortedWords = state.usedWords.sortedWith(
+            compareByDescending<String> {
+                isRelevant(it, currentLen, isCompress)
+            }.thenBy { it.length }
+        )
+
+        for (w in sortedWords) {
+
+            val isTarget = (w == highlightWord)
+            val relevant = isRelevant(w, currentLen, isCompress)
+
             val tv = TextView(this).apply {
                 text = w
                 setPadding(16, 8, 16, 8)
                 setTextColor(Color.WHITE)
 
+                alpha = if (relevant) 1f else 0.35f
+
+                layoutParams = FlexboxLayout.LayoutParams(
+                    FlexboxLayout.LayoutParams.WRAP_CONTENT,
+                    FlexboxLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    setMargins(8, 8, 8, 8)
+                }
+
                 background = GradientDrawable().apply {
-                    setColor(getColorByLength(w.length))
+                    setColor(
+                        if (isTarget) Color.RED
+                        else getColorByLength(w.length)
+                    )
                     cornerRadius = 50f
                 }
             }
 
             usedWordsContainer.addView(tv)
+
+            if (isTarget) {
+                tv.post {
+                    val y = tv.top - usedScroll.height / 2 + tv.height / 2
+                    usedScroll.smoothScrollTo(0, y)
+                }
+            }
         }
+
+        highlightWord = null
     }
 
     private fun createKeyboard() {
@@ -578,8 +630,10 @@ class MainActivity : AppCompatActivity() {
 
 
     // ===== helpers (без изменений)
-
-    private fun styleButton(btn: Button) {
+    private fun highlightUsedWord(word: String) {
+        highlightWord = word
+        render()
+    }    private fun styleButton(btn: Button) {
         btn.setTextColor(Color.WHITE)
         btn.background = GradientDrawable().apply {
             setColor(Color.parseColor("#3F51B5"))
@@ -717,6 +771,18 @@ class MainActivity : AppCompatActivity() {
         timeLeft = 180
         timerText.text = "⏱ $timeLeft сек"
         timerStarted = false
+    }
+
+    private fun isRelevant(word: String, currentLen: Int, isCompress: Boolean): Boolean {
+        val len = word.length
+
+        return if (isCompress) {
+            len in 2..3
+        } else {
+            len == currentLen ||
+                    len == currentLen - 1 ||
+                    len == currentLen + 1
+        }
     }
     private fun endGame() {
 
